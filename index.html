@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dastarkhwan Restaurant POS</title>
+    <meta name="description" content="Restaurant management and POS application with SQLite persistence, 30-day trial, and automatic Windows update system." />
+    <meta property="og:title" content="Dastarkhwan Restaurant POS" />
+    <meta property="og:description" content="Restaurant management and POS application with SQLite persistence, 30-day trial, and automatic Windows update system." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      (function() {
+        // Prevent and silence benign Vite HMR websocket connection errors in AI Studio container environment
+        if (typeof window !== 'undefined') {
+          window.addEventListener('unhandledrejection', function(event) {
+            var reason = String(event && (event.reason && (event.reason.message || event.reason) || ''));
+            if (reason.indexOf('WebSocket closed without opened') !== -1 || reason.indexOf('[vite]') !== -1 || reason.indexOf('vite-hmr') !== -1) {
+              event.preventDefault();
+              if (typeof event.stopImmediatePropagation === 'function') {
+                event.stopImmediatePropagation();
+              }
+            }
+          });
+
+          var originalConsoleError = console.error;
+          console.error = function() {
+            var args = Array.prototype.slice.call(arguments);
+            var joined = args.map(function(arg) {
+              if (typeof arg === 'string') return arg;
+              if (arg && arg.message) return arg.message;
+              return String(arg || '');
+            }).join(' ');
+            if (
+              joined.indexOf('[vite] failed to connect to websocket') !== -1 ||
+              joined.indexOf('WebSocket closed without opened') !== -1
+            ) {
+              return;
+            }
+            originalConsoleError.apply(console, args);
+          };
+
+          var NativeWebSocket = window.WebSocket;
+          if (NativeWebSocket) {
+            function SafeHMRWebSocket(url, protocols) {
+              var isHmr =
+                protocols === 'vite-hmr' ||
+                (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1) ||
+                (typeof url === 'string' && (url.indexOf('vite-hmr') !== -1 || url.indexOf('/@vite/client') !== -1));
+
+              if (isHmr) {
+                var emitter = new EventTarget();
+                emitter.readyState = 1;
+                emitter.OPEN = 1;
+                emitter.CONNECTING = 0;
+                emitter.CLOSING = 2;
+                emitter.CLOSED = 3;
+                emitter.url = url;
+                emitter.protocol = 'vite-hmr';
+                emitter.extensions = '';
+                emitter.bufferedAmount = 0;
+                emitter.binaryType = 'blob';
+                emitter.send = function() {};
+                emitter.close = function() {
+                  emitter.readyState = 3;
+                };
+                setTimeout(function() {
+                  try {
+                    emitter.dispatchEvent(new Event('open'));
+                  } catch (_) {}
+                }, 0);
+                return emitter;
+              }
+              return new NativeWebSocket(url, protocols);
+            }
+
+            SafeHMRWebSocket.prototype = NativeWebSocket.prototype;
+            SafeHMRWebSocket.CONNECTING = 0;
+            SafeHMRWebSocket.OPEN = 1;
+            SafeHMRWebSocket.CLOSING = 2;
+            SafeHMRWebSocket.CLOSED = 3;
+            window.WebSocket = SafeHMRWebSocket;
+          }
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

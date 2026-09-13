@@ -1,0 +1,6 @@
+{
+  "name": "Dastarkhwan Restaurant POS",
+  "description": "Restaurant management and POS application with SQLite persistence, 30-day trial, and automatic Windows update system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
