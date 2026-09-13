@@ -27,7 +27,7 @@
     "publish": {
       "provider": "github",
       "owner": "daudaziz998-web",
-      "repo": "dastrkwan-resturant-pose"
+      "repo": "dastkrwan-restaurant-pose"
     },
     "directories": {
       "output": "release"

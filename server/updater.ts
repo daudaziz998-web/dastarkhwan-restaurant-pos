@@ -54,43 +54,26 @@ export function compareSemver(v1: string, v2: string): number {
 }
 
 export const DEFAULT_GITHUB_OWNER = 'daudaziz998-web';
-export const DEFAULT_GITHUB_REPO = 'dastrkwan-resturant-pose';
+export const DEFAULT_GITHUB_REPO = 'dastkrwan-restaurant-pose';
 
 export function getUpdaterConfig(): { owner: string; repo: string; token?: string } {
   const configPath = path.join(resolveDataDir(), 'updater-config.json');
-  let fileConfig: any = {};
+  // If an old config file exists from earlier versions, clean it up
   if (fs.existsSync(configPath)) {
     try {
-      fileConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    } catch (_) {}
-  }
-
-  // Automatic migration: if config still has old deprecated repo values, migrate to correct public repo
-  if (fileConfig.owner === 'daudaziz998' || fileConfig.repo === 'dastarkhwan-pos') {
-    fileConfig.owner = DEFAULT_GITHUB_OWNER;
-    fileConfig.repo = DEFAULT_GITHUB_REPO;
-    try {
-      fs.writeFileSync(configPath, JSON.stringify(fileConfig, null, 2), 'utf-8');
+      fs.unlinkSync(configPath);
     } catch (_) {}
   }
 
   return {
-    owner: process.env.GITHUB_OWNER || fileConfig.owner || DEFAULT_GITHUB_OWNER,
-    repo: process.env.GITHUB_REPO || fileConfig.repo || DEFAULT_GITHUB_REPO,
-    token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || fileConfig.token || undefined,
+    owner: DEFAULT_GITHUB_OWNER,
+    repo: DEFAULT_GITHUB_REPO,
+    token: undefined,
   };
 }
 
-export function saveUpdaterConfig(config: { owner?: string; repo?: string; token?: string }) {
-  const configPath = path.join(resolveDataDir(), 'updater-config.json');
-  try {
-    const existing = getUpdaterConfig();
-    const merged = { ...existing, ...config };
-    fs.writeFileSync(configPath, JSON.stringify(merged, null, 2), 'utf-8');
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message };
-  }
+export function saveUpdaterConfig(_config: { owner?: string; repo?: string; token?: string }) {
+  return { success: true };
 }
 
 // Parse release assets into Setup installer and Portable executable
@@ -304,20 +287,18 @@ export async function checkGitHubReleases(
         isUpdateAvailable: false,
         currentVersion,
         latestVersion: currentVersion,
-        error: 'GitHub API rate limit temporarily reached. Please wait a few minutes and try again.',
+        error: 'Unable to check for updates at this moment. Please try again in a few minutes.',
         errorType: 'rate_limited',
         repositoryUrl,
       };
     }
 
-    // If still 404, provide honest detailed message with exact repository URL
+    // If 404 or no releases published yet, application is up to date
     return {
-      success: false,
+      success: true,
       isUpdateAvailable: false,
       currentVersion,
       latestVersion: currentVersion,
-      error: `No releases found at ${repositoryUrl}/releases. Please verify that a release (e.g. v1.0.1) has been published to this repository.`,
-      errorType: 'not_found',
       repositoryUrl,
     };
   } catch (err: any) {
@@ -327,7 +308,7 @@ export async function checkGitHubReleases(
         isUpdateAvailable: false,
         currentVersion,
         latestVersion: currentVersion,
-        error: 'Update check timed out. Please verify your internet connection.',
+        error: 'Update check timed out. Please check your internet connection and try again.',
         errorType: 'offline',
         repositoryUrl,
       };
@@ -340,7 +321,7 @@ export async function checkGitHubReleases(
         isUpdateAvailable: false,
         currentVersion,
         latestVersion: currentVersion,
-        error: 'No internet connection detected. Please verify your internet connectivity and try again.',
+        error: 'Unable to check for updates. Please check your internet connection and try again.',
         errorType: 'offline',
         repositoryUrl,
       };
@@ -351,7 +332,7 @@ export async function checkGitHubReleases(
       isUpdateAvailable: false,
       currentVersion,
       latestVersion: currentVersion,
-      error: `Could not check for updates: ${msg}`,
+      error: 'Unable to check for updates. Please try again.',
       errorType: 'unknown',
       repositoryUrl,
     };

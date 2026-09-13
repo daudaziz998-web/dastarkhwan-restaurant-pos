@@ -358,20 +358,28 @@ function setupAutoUpdater() {
 
     autoUpdater.on('error', (err) => {
       const msg = String(err?.message || err);
-      let friendly = `Update check error: ${msg}`;
+      let friendly = 'Unable to check for updates. Please try again.';
       let type = 'unknown';
 
       if (msg.includes('net::ERR_INTERNET_DISCONNECTED') || msg.includes('ENOTFOUND') || msg.includes('network') || msg.includes('fetch failed')) {
-        friendly = 'No internet connection detected. Please verify your network connection and try again.';
+        friendly = 'No internet connection detected. Please check your internet connection and try again.';
         type = 'offline';
       } else if (msg.includes('403') || msg.includes('rate limit')) {
-        friendly = 'GitHub API rate limit reached or access restricted. Please try again in a few minutes.';
+        friendly = 'Unable to check for updates at this moment. Please try again in a few minutes.';
         type = 'rate_limited';
-      } else if (msg.includes('404') || msg.includes('Cannot find')) {
-        friendly = `No releases found at https://github.com/${DEFAULT_GITHUB_OWNER}/${DEFAULT_GITHUB_REPO}/releases. Please verify that a release has been published.`;
-        type = 'not_found';
+      } else if (msg.includes('404') || msg.includes('Cannot find') || msg.includes('latest.yml')) {
+        // When 404 / latest.yml not found, the application is on the latest version or no release exists
+        currentUpdateState = {
+          ...currentUpdateState,
+          status: 'not-available',
+          availableVersion: undefined,
+          errorMessage: undefined,
+          errorType: undefined,
+        };
+        broadcastUpdateState();
+        return;
       } else if (msg.includes('sha512') || msg.includes('checksum') || msg.includes('corrupted')) {
-        friendly = 'Update package verification failed (corrupted file). Download was aborted to safeguard your application.';
+        friendly = 'Update package verification failed. Download was aborted to safeguard your application.';
         type = 'corrupted';
       }
 

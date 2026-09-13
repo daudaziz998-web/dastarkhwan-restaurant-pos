@@ -7,10 +7,6 @@ interface AppUpdaterProps {
   onToast?: (msg: string) => void;
 }
 
-const DEFAULT_OWNER = 'daudaziz998-web';
-const DEFAULT_REPO = 'dastrkwan-resturant-pose';
-const REPO_URL = `https://github.com/${DEFAULT_OWNER}/${DEFAULT_REPO}`;
-
 export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
   const [checking, setChecking] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -19,37 +15,26 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
   const [downloadedBytes, setDownloadedBytes] = useState<string>('');
   const [updateReady, setUpdateReady] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [errorType, setErrorType] = useState<string | null>(null);
-  const [lastChecked, setLastChecked] = useState<Date | null>(null);
-
-  // Version and release info
-  const [currentVersion, setCurrentVersion] = useState('1.0.0');
-  const [availableVersion, setAvailableVersion] = useState<string | null>(null);
-  const [releaseName, setReleaseName] = useState<string | null>(null);
-  const [releaseNotes, setReleaseNotes] = useState<string | null>(null);
-  const [publishedAt, setPublishedAt] = useState<string | null>(null);
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
-  const [setupDownloadUrl, setSetupDownloadUrl] = useState<string | null>(null);
-  const [portableDownloadUrl, setPortableDownloadUrl] = useState<string | null>(null);
-  const [assetName, setAssetName] = useState<string | null>(null);
   const [isUpToDate, setIsUpToDate] = useState(false);
 
-  // System & Environment
-  const [dbPath, setDbPath] = useState<string>('');
-  const [dataDir, setDataDir] = useState<string>('');
+  // Version state
+  const [currentVersion, setCurrentVersion] = useState('1.0.0');
+  const [availableVersion, setAvailableVersion] = useState<string | null>(null);
+  const [releaseNotes, setReleaseNotes] = useState<string | null>(null);
+
+  // Environment state
   const [isElectron, setIsElectron] = useState<boolean>(false);
   const [isPortable, setIsPortable] = useState<boolean>(false);
+  const [dbPath, setDbPath] = useState<string>('');
 
-  // Format bytes helper
   const formatBytes = (bytes: number) => {
     if (!bytes || bytes <= 0) return '0 MB';
     const mb = bytes / (1024 * 1024);
     return `${mb.toFixed(1)} MB`;
   };
 
-  // Load system information and check environment
+  // Load system and version information
   useEffect(() => {
-    // 1. Check Electron environment
     if (window.electronAPI?.isDesktop) {
       setIsElectron(true);
       if (window.electronAPI.isPortable) {
@@ -59,26 +44,21 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
         if (v) setCurrentVersion(v);
       });
       window.electronAPI.getDatabaseLocation().then((loc) => {
-        if (loc) {
-          setDbPath(loc.databasePath);
-          setDataDir(loc.dataDir);
-        }
+        if (loc?.databasePath) setDbPath(loc.databasePath);
       });
     }
 
-    // 2. Fetch server system info for dynamic package.json version and database location
     api.getSystemInfo().then((info) => {
       if (info) {
         if (info.version && (!window.electronAPI?.isDesktop || currentVersion === '1.0.0')) {
           setCurrentVersion(info.version);
         }
         if (info.dbPath) setDbPath(info.dbPath);
-        if (info.dataDir) setDataDir(info.dataDir);
       }
     }).catch(() => {});
   }, []);
 
-  // Listen to desktop update status broadcasts
+  // Listen for desktop update state changes
   useEffect(() => {
     if (!window.electronAPI?.onUpdateStatusChange) return;
 
@@ -93,19 +73,12 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
         setChecking(false);
         setIsUpToDate(false);
         setAvailableVersion(state.availableVersion || null);
-        setReleaseName(state.releaseName || null);
         setReleaseNotes(state.releaseNotes || null);
-        setPublishedAt(state.publishedAt || null);
-        setDownloadUrl(state.downloadUrl || null);
-        setSetupDownloadUrl(state.setupDownloadUrl || null);
-        setPortableDownloadUrl(state.portableDownloadUrl || null);
-        setLastChecked(new Date());
       } else if (state.status === 'not-available') {
         setChecking(false);
         setIsUpToDate(true);
         setAvailableVersion(null);
         setErrorMessage(null);
-        setLastChecked(new Date());
       } else if (state.status === 'downloading') {
         setChecking(false);
         setDownloading(true);
@@ -123,13 +96,11 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
         setDownloading(false);
         setDownloadProgress(100);
         setUpdateReady(true);
-        if (onToast) onToast('Update downloaded and verified! Ready to apply.');
+        if (onToast) onToast('Update downloaded successfully.');
       } else if (state.status === 'error') {
         setChecking(false);
         setDownloading(false);
-        setErrorMessage(state.errorMessage || 'An error occurred while communicating with GitHub Releases.');
-        setErrorType(state.errorType || 'unknown');
-        setLastChecked(new Date());
+        setErrorMessage(state.errorMessage || 'Unable to check for updates. Please try again.');
       }
     });
 
@@ -138,273 +109,143 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
     };
   }, [onToast]);
 
-  // Handle Check for Updates action
+  // Check for updates
   const handleCheckForUpdates = useCallback(async () => {
     setChecking(true);
     setErrorMessage(null);
-    setErrorType(null);
     setIsUpToDate(false);
+    setAvailableVersion(null);
+    setUpdateReady(false);
+    setDownloading(false);
 
     try {
       if (window.electronAPI?.checkForUpdates) {
         const result = await window.electronAPI.checkForUpdates();
-        setLastChecked(new Date());
         if (result && result.error) {
-          setErrorMessage(result.error);
-          setErrorType(result.errorType || 'unknown');
+          setErrorMessage(result.error || 'Unable to check for updates. Please try again.');
         } else if (result && result.isUpdateAvailable) {
           setAvailableVersion(result.latestVersion);
-          setReleaseName(result.releaseName || `Release v${result.latestVersion}`);
           setReleaseNotes(result.releaseNotes || null);
-          setPublishedAt(result.publishedAt || null);
-          setDownloadUrl(result.downloadUrl || null);
-          setSetupDownloadUrl(result.setupDownloadUrl || null);
-          setPortableDownloadUrl(result.portableDownloadUrl || null);
-          setAssetName(result.assetName || null);
           setIsUpToDate(false);
         } else if (result && result.success && !result.isUpdateAvailable) {
           setIsUpToDate(true);
           setAvailableVersion(null);
         }
       } else {
-        // Web / development mode check
         const result = await api.checkUpdates(currentVersion);
-        setLastChecked(new Date());
         setChecking(false);
 
         if (!result.success) {
-          setErrorMessage(result.error || `Unable to locate releases at ${REPO_URL}/releases.`);
-          setErrorType(result.errorType || 'unknown');
+          setErrorMessage(result.error || 'Unable to check for updates. Please try again.');
           return;
         }
 
         if (result.isUpdateAvailable) {
           setIsUpToDate(false);
           setAvailableVersion(result.latestVersion);
-          setReleaseName(result.releaseName || `Release v${result.latestVersion}`);
           setReleaseNotes(result.releaseNotes || null);
-          setPublishedAt(result.publishedAt || null);
-          setDownloadUrl(result.downloadUrl || null);
-          setSetupDownloadUrl(result.setupDownloadUrl || null);
-          setPortableDownloadUrl(result.portableDownloadUrl || null);
-          setAssetName(result.assetName || null);
-          if (onToast) onToast(`Update v${result.latestVersion} is available!`);
+          if (onToast) onToast(`Update available: v${result.latestVersion}`);
         } else {
           setIsUpToDate(true);
           setAvailableVersion(null);
-          if (onToast) onToast('Your POS application is up to date.');
         }
       }
     } catch (err: any) {
       setChecking(false);
-      setLastChecked(new Date());
-      setErrorMessage(err.message || 'Failed to connect to the update service.');
-      setErrorType('unknown');
+      setErrorMessage('Unable to check for updates. Please try again.');
     }
   }, [currentVersion, onToast]);
 
-  // Handle Download / Update Now
-  const handleUpdateNow = async (targetAsset?: 'setup' | 'portable') => {
+  // Download update
+  const handleDownloadUpdate = async () => {
     setDownloading(true);
     setErrorMessage(null);
     setDownloadProgress(0);
 
     if (window.electronAPI?.startUpdateDownload) {
       try {
-        await window.electronAPI.startUpdateDownload(targetAsset || (isPortable ? 'portable' : 'setup'));
+        await window.electronAPI.startUpdateDownload(isPortable ? 'portable' : 'setup');
       } catch (err: any) {
         setDownloading(false);
-        setErrorMessage(`Download failed: ${err.message}`);
+        setErrorMessage('Unable to download update. Please try again.');
       }
     } else {
-      // In preview / web mode, simulate download
       let progress = 0;
       const interval = setInterval(() => {
         progress += 25;
         setDownloadProgress(progress);
-        setDownloadSpeed('5.4 MB/s');
-        setDownloadedBytes(`${(progress * 0.48).toFixed(1)} MB / 48 MB`);
+        setDownloadSpeed('5.2 MB/s');
+        setDownloadedBytes(`${(progress * 0.45).toFixed(1)} MB / 45 MB`);
         if (progress >= 100) {
           clearInterval(interval);
           setDownloading(false);
           setUpdateReady(true);
-          if (onToast) onToast('Update downloaded and verified!');
+          if (onToast) onToast('Update downloaded successfully.');
         }
       }, 300);
     }
   };
 
-  // Handle Restart & Apply Update
-  const handleApplyUpdate = () => {
+  // Restart and install update
+  const handleRestartAndInstall = () => {
     if (window.electronAPI?.quitAndInstall) {
       window.electronAPI.quitAndInstall();
     } else {
-      if (onToast) onToast('Application will restart to apply the update.');
+      if (onToast) onToast('Restarting application to apply update...');
       setTimeout(() => {
         window.location.reload();
       }, 1000);
     }
   };
 
-  // Open external URL in default browser
-  const openExternalUrl = (url: string) => {
-    if (window.electronAPI?.openExternal) {
-      window.electronAPI.openExternal(url);
-    } else {
-      window.open(url, '_blank', 'noopener,noreferrer');
-    }
-  };
-
   return (
     <div className="pos-card" id="app-updater-section" style={{ marginBottom: '14px' }}>
-      {/* Header with Title and Distribution Badges */}
-      <div className="pos-row-between" style={{ alignItems: 'flex-start', marginBottom: '12px' }}>
-        <div>
-          <div className="pos-card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <span>🔄 Automatic Application Updates</span>
-            {isElectron && (
-              <span
-                id="updater-distribution-badge"
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  background: isPortable ? 'rgba(234, 179, 8, 0.15)' : 'rgba(56, 189, 248, 0.15)',
-                  color: isPortable ? '#eab308' : '#38bdf8',
-                  border: isPortable ? '1px solid rgba(234, 179, 8, 0.3)' : '1px solid rgba(56, 189, 248, 0.3)',
-                }}
-              >
-                {isPortable ? 'Windows Portable' : 'Windows Setup (NSIS)'}
-              </span>
-            )}
-            <span
-              style={{
-                fontSize: '11px',
-                padding: '2px 8px',
-                borderRadius: '12px',
-                background: 'rgba(16, 185, 129, 0.12)',
-                color: '#10b981',
-                border: '1px solid rgba(16, 185, 129, 0.25)',
-              }}
-            >
-              Public Repository
-            </span>
-          </div>
-          <div className="pos-muted" style={{ fontSize: '13px', marginTop: '2px' }}>
-            Directly connected to official GitHub Releases for production updates.
-          </div>
+      {/* Title */}
+      <div style={{ marginBottom: '14px' }}>
+        <div className="pos-card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span>🔄 Automatic Application Updates</span>
         </div>
-
-        {/* View on GitHub Button */}
-        <button
-          type="button"
-          className="pos-btn outline sm"
-          style={{ fontSize: '12px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-          onClick={() => openExternalUrl(`${REPO_URL}/releases`)}
-          title="Open official GitHub Releases in browser"
-        >
-          <span>🌐 GitHub Releases</span>
-        </button>
-      </div>
-
-      {/* Configured Repository Indicator */}
-      <div
-        style={{
-          background: 'var(--surface-2)',
-          border: '1px solid var(--border)',
-          borderRadius: '6px',
-          padding: '8px 12px',
-          marginBottom: '14px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '8px',
-          fontSize: '12px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span className="pos-muted">Release Source:</span>
-          <a
-            href={`${REPO_URL}/releases`}
-            onClick={(e) => {
-              e.preventDefault();
-              openExternalUrl(`${REPO_URL}/releases`);
-            }}
-            style={{ color: '#38bdf8', textDecoration: 'underline', fontWeight: 600 }}
-          >
-            {DEFAULT_OWNER}/{DEFAULT_REPO}
-          </a>
-        </div>
-        <div className="pos-muted" style={{ fontSize: '11px' }}>
-          No personal token required (Public Repository)
+        <div className="pos-muted" style={{ fontSize: '13px', marginTop: '2px' }}>
+          Check and install official production updates automatically.
         </div>
       </div>
 
-      {/* Version Status Cards */}
+      {/* Installed Version Box */}
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: availableVersion ? 'repeat(auto-fit, minmax(180px, 1fr))' : '1fr',
-          gap: '10px',
           background: 'var(--surface-2)',
-          padding: '14px',
+          padding: '14px 16px',
           borderRadius: '8px',
           marginBottom: '14px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div className="pos-muted" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Installed Version
-            </div>
-            <div id="updater-current-version" style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)' }}>
-              v{currentVersion}
-            </div>
+        <div>
+          <div className="pos-muted" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            Installed Version
           </div>
-          <span
-            style={{
-              fontSize: '12px',
-              padding: '3px 8px',
-              borderRadius: '6px',
-              background: 'rgba(16, 185, 129, 0.12)',
-              color: '#10b981',
-              fontWeight: 600,
-            }}
-          >
-            Current
-          </span>
+          <div id="updater-current-version" style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-primary)' }}>
+            v{currentVersion}
+          </div>
         </div>
 
         {availableVersion && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div className="pos-muted" style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                New Available Version
-              </div>
-              <div id="updater-available-version" style={{ fontSize: '20px', fontWeight: 700, color: '#38bdf8' }}>
-                v{availableVersion}
-              </div>
+          <div style={{ textAlign: 'right' }}>
+            <div className="pos-muted" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Available Version
             </div>
-            <span
-              style={{
-                fontSize: '12px',
-                padding: '3px 8px',
-                borderRadius: '6px',
-                background: 'rgba(56, 189, 248, 0.15)',
-                color: '#38bdf8',
-                fontWeight: 600,
-              }}
-            >
-              Update Ready
-            </span>
+            <div id="updater-available-version" style={{ fontSize: '22px', fontWeight: 700, color: '#38bdf8' }}>
+              v{availableVersion}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Action Button Bar */}
-      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '14px' }}>
+      {/* Primary Actions */}
+      <div style={{ marginBottom: '14px' }}>
+        {/* State 1: Idle or Up-to-date - Show Check for Updates */}
         {!availableVersion && !updateReady && (
           <button
             id="check-for-updates-btn"
@@ -412,19 +253,45 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
             className="pos-btn"
             disabled={checking}
             onClick={handleCheckForUpdates}
-            style={{ minWidth: '170px' }}
+            style={{ minWidth: '180px' }}
           >
             {checking ? '⏳ Checking for Updates...' : '🔍 Check for Updates'}
           </button>
         )}
 
+        {/* State 2: Update Available - Show Update available notice & Download Update button */}
         {availableVersion && !updateReady && !downloading && (
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div>
+            <div
+              style={{
+                background: 'rgba(56, 189, 248, 0.12)',
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                padding: '12px 14px',
+                borderRadius: '8px',
+                marginBottom: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+              }}
+            >
+              <span style={{ fontSize: '20px' }}>📦</span>
+              <div>
+                <strong style={{ color: '#38bdf8', fontSize: '15px' }}>
+                  Update available: v{availableVersion}
+                </strong>
+                {releaseNotes && (
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', whiteSpace: 'pre-line' }}>
+                    {releaseNotes}
+                  </div>
+                )}
+              </div>
+            </div>
+
             <button
-              id="update-now-btn"
+              id="download-update-btn"
               type="button"
               className="pos-btn primary"
-              onClick={() => handleUpdateNow(isPortable ? 'portable' : 'setup')}
+              onClick={handleDownloadUpdate}
               style={{
                 background: '#0284c7',
                 borderColor: '#0284c7',
@@ -433,71 +300,104 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
                 minWidth: '180px',
               }}
             >
-              🚀 Update Now (v{availableVersion})
+              📥 Download Update
             </button>
-
-            {/* Quick manual download options for Portable or Setup */}
-            {portableDownloadUrl && (
-              <button
-                type="button"
-                className="pos-btn outline sm"
-                onClick={() => openExternalUrl(portableDownloadUrl!)}
-                title="Download Windows Portable executable directly from GitHub"
-              >
-                📦 Download Portable EXE
-              </button>
-            )}
-            {setupDownloadUrl && (
-              <button
-                type="button"
-                className="pos-btn outline sm"
-                onClick={() => openExternalUrl(setupDownloadUrl!)}
-                title="Download Windows NSIS Setup installer directly from GitHub"
-              >
-                💿 Download Setup Installer
-              </button>
-            )}
           </div>
         )}
 
+        {/* State 3: Downloading - Show Progress Bar */}
         {downloading && (
-          <button
-            type="button"
-            className="pos-btn"
-            disabled
-            style={{ minWidth: '180px', opacity: 0.9 }}
-          >
-            ⏳ Downloading Update ({downloadProgress ?? 0}%)...
-          </button>
-        )}
-
-        {updateReady && (
-          <button
-            id="restart-and-apply-btn"
-            type="button"
-            className="pos-btn"
-            onClick={handleApplyUpdate}
+          <div
             style={{
-              background: '#16a34a',
-              borderColor: '#16a34a',
-              color: '#ffffff',
-              fontWeight: 700,
-              minWidth: '200px',
+              background: 'var(--surface-2)',
+              border: '1px solid rgba(56, 189, 248, 0.3)',
+              padding: '14px',
+              borderRadius: '8px',
             }}
           >
-            ✨ Restart & Apply Update
-          </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px' }}>
+              <span style={{ fontWeight: 600, color: '#38bdf8' }}>
+                Downloading update...
+              </span>
+              <span className="pos-mono" style={{ fontWeight: 600 }}>
+                {downloadProgress ?? 0}%
+              </span>
+            </div>
+
+            <div
+              style={{
+                width: '100%',
+                height: '8px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                borderRadius: '4px',
+                overflow: 'hidden',
+                marginBottom: '8px',
+              }}
+            >
+              <div
+                style={{
+                  width: `${downloadProgress ?? 0}%`,
+                  height: '100%',
+                  background: '#38bdf8',
+                  transition: 'width 0.3s ease',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
+              <span>{downloadedBytes || 'Connecting...'}</span>
+              <span>{downloadSpeed}</span>
+            </div>
+          </div>
         )}
 
-        {lastChecked && (
-          <span className="pos-muted" style={{ fontSize: '12px' }}>
-            Last checked: {lastChecked.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </span>
+        {/* State 4: Downloaded - Show Restart and Install button */}
+        {updateReady && (
+          <div>
+            <div
+              style={{
+                background: 'rgba(22, 163, 74, 0.12)',
+                border: '1px solid rgba(22, 163, 74, 0.3)',
+                padding: '12px 14px',
+                borderRadius: '8px',
+                marginBottom: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+              }}
+            >
+              <span style={{ fontSize: '20px' }}>✨</span>
+              <div>
+                <strong style={{ color: '#16a34a', fontSize: '15px' }}>
+                  Update downloaded successfully.
+                </strong>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Click below to restart the application and apply the update.
+                </div>
+              </div>
+            </div>
+
+            <button
+              id="restart-and-install-btn"
+              type="button"
+              className="pos-btn"
+              onClick={handleRestartAndInstall}
+              style={{
+                background: '#16a34a',
+                borderColor: '#16a34a',
+                color: '#ffffff',
+                fontWeight: 700,
+                minWidth: '200px',
+              }}
+            >
+              🚀 Restart and Install
+            </button>
+          </div>
         )}
       </div>
 
       {/* Up To Date Notice */}
-      {isUpToDate && !checking && (
+      {isUpToDate && !checking && !availableVersion && (
         <div
           id="up-to-date-message"
           style={{
@@ -514,144 +414,9 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
           }}
         >
           <span style={{ fontSize: '18px' }}>✅</span>
-          <div>
-            <strong style={{ display: 'block', fontSize: '14px', color: '#10b981' }}>
-              You are using the latest version.
-            </strong>
-            <span style={{ fontSize: '12px', opacity: 0.9 }}>
-              Version {currentVersion} matches the latest release published on GitHub ({DEFAULT_OWNER}/{DEFAULT_REPO}).
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Downloading Progress Bar */}
-      {downloading && (
-        <div
-          style={{
-            background: 'var(--surface-2)',
-            border: '1px solid rgba(56, 189, 248, 0.3)',
-            padding: '14px',
-            borderRadius: '8px',
-            marginBottom: '14px',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px' }}>
-            <span style={{ fontWeight: 600, color: '#38bdf8' }}>
-              Downloading {isPortable ? 'Portable update' : 'Setup package'} from GitHub...
-            </span>
-            <span className="pos-mono" style={{ fontWeight: 600 }}>
-              {downloadProgress ?? 0}%
-            </span>
-          </div>
-
-          <div
-            style={{
-              width: '100%',
-              height: '8px',
-              background: 'rgba(255, 255, 255, 0.1)',
-              borderRadius: '4px',
-              overflow: 'hidden',
-              marginBottom: '8px',
-            }}
-          >
-            <div
-              style={{
-                width: `${downloadProgress ?? 0}%`,
-                height: '100%',
-                background: '#38bdf8',
-                transition: 'width 0.3s ease',
-              }}
-            />
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
-            <span>{downloadedBytes || 'Connecting to GitHub CDN...'}</span>
-            <span>{downloadSpeed}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Ready to Install Notice */}
-      {updateReady && (
-        <div
-          style={{
-            background: 'rgba(22, 163, 74, 0.12)',
-            border: '1px solid rgba(22, 163, 74, 0.3)',
-            padding: '14px',
-            borderRadius: '8px',
-            marginBottom: '14px',
-          }}
-        >
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '20px' }}>📦</span>
-            <div>
-              <strong style={{ display: 'block', color: '#16a34a', fontSize: '14px', marginBottom: '4px' }}>
-                Update v{availableVersion || 'latest'} is downloaded and verified!
-              </strong>
-              <div style={{ fontSize: '13px', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                Click <strong>"Restart & Apply Update"</strong> to launch the new version.
-                {isPortable ? ' The updated Portable EXE will launch seamlessly.' : ' The NSIS installer will update the app in seconds.'}
-              </div>
-              <div style={{ fontSize: '12px', color: '#16a34a', fontWeight: 500 }}>
-                🛡️ All your restaurant orders, menu, customer records, and 30-day trial remain 100% intact.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Release Details Card */}
-      {availableVersion && !updateReady && (
-        <div
-          style={{
-            background: 'var(--surface-2)',
-            border: '1px solid rgba(56, 189, 248, 0.25)',
-            padding: '14px',
-            borderRadius: '8px',
-            marginBottom: '14px',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <div style={{ fontWeight: 600, fontSize: '14px', color: '#38bdf8' }}>
-              {releaseName || `Release v${availableVersion}`}
-            </div>
-            {publishedAt && (
-              <span className="pos-muted" style={{ fontSize: '12px' }}>
-                Published: {new Date(publishedAt).toLocaleDateString()}
-              </span>
-            )}
-          </div>
-
-          {releaseNotes && (
-            <div
-              style={{
-                fontSize: '12px',
-                lineHeight: '1.5',
-                color: 'var(--text-muted)',
-                background: 'rgba(0,0,0,0.15)',
-                padding: '10px',
-                borderRadius: '6px',
-                whiteSpace: 'pre-line',
-                maxHeight: '140px',
-                overflowY: 'auto',
-                marginBottom: '10px',
-              }}
-            >
-              {releaseNotes}
-            </div>
-          )}
-
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-            <span>📥 Available Artifacts:</span>
-            <span className="pos-mono" style={{ color: 'var(--text-primary)' }}>
-              Dastarkhwan.Restaurant.POS-Setup-{availableVersion}.exe
-            </span>
-            <span>&amp;</span>
-            <span className="pos-mono" style={{ color: 'var(--text-primary)' }}>
-              Dastarkhwan.Restaurant.POS-{availableVersion}.exe (Portable)
-            </span>
-          </div>
+          <strong style={{ color: '#10b981' }}>
+            You are using the latest version.
+          </strong>
         </div>
       )}
 
@@ -667,42 +432,27 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
             borderRadius: '8px',
             marginBottom: '14px',
             fontSize: '13px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <span style={{ fontSize: '18px' }}>⚠️</span>
-              <div>
-                <strong>Update Service Notice:</strong>
-                <p style={{ margin: '4px 0 0 0', lineHeight: 1.4 }}>{errorMessage}</p>
-                <p style={{ margin: '6px 0 0 0', fontSize: '12px', opacity: 0.85 }}>
-                  Target Repository: <code>{DEFAULT_OWNER}/{DEFAULT_REPO}</code>
-                </p>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button
-                type="button"
-                className="pos-btn outline sm"
-                style={{ fontSize: '11px', padding: '3px 8px', borderColor: '#f87171', color: '#f87171' }}
-                onClick={handleCheckForUpdates}
-              >
-                Retry
-              </button>
-              <button
-                type="button"
-                className="pos-btn outline sm"
-                style={{ fontSize: '11px', padding: '3px 8px', borderColor: 'var(--border)' }}
-                onClick={() => openExternalUrl(`${REPO_URL}/releases`)}
-              >
-                Open Releases
-              </button>
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '16px' }}>⚠️</span>
+            <span>{errorMessage}</span>
           </div>
+          <button
+            type="button"
+            className="pos-btn outline sm"
+            style={{ fontSize: '12px', padding: '4px 10px', borderColor: '#f87171', color: '#f87171' }}
+            onClick={handleCheckForUpdates}
+          >
+            Retry
+          </button>
         </div>
       )}
 
-      {/* CRITICAL: User Data Protection & Trial Guarantee Card */}
+      {/* SQLite Database & Trial Safety Guarantee */}
       <div
         style={{
           background: 'rgba(56, 189, 248, 0.05)',
@@ -711,34 +461,15 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
           padding: '12px 14px',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
           <span style={{ fontSize: '16px' }}>🛡️</span>
           <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>
-            Database Safety & Trial Guarantee
+            Data Safety Guarantee
           </strong>
         </div>
-
-        <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.6' }}>
-          <li>
-            <strong>Persistent Database Location:</strong> The SQLite database is saved in Windows <code>%APPDATA%</code> (per-user storage), completely isolated from the application installation directory.
-          </li>
-          <li>
-            <strong>30-Day Trial Protected:</strong> Updates will never reset, truncate, or overwrite your trial period or license.
-            {trial && (
-              <span style={{ marginLeft: '4px', color: trial.isExpired ? 'var(--chili)' : 'var(--herb)', fontWeight: 600 }}>
-                (Current status: {trial.isExpired ? 'Trial Expired' : `${trial.remainingDays} days remaining`})
-              </span>
-            )}
-          </li>
-          <li>
-            <strong>Compatible with Setup & Portable:</strong> Both Windows Installer (NSIS) and Portable EXE access the exact same persistent data store.
-          </li>
-          {dbPath && (
-            <li style={{ wordBreak: 'break-all', marginTop: '2px' }}>
-              <strong>Database File:</strong> <code style={{ fontSize: '11px' }}>{dbPath}</code>
-            </li>
-          )}
-        </ul>
+        <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+          All restaurant data (orders, sales, menu, customers, employees) and 30-day trial status are saved in Windows per-user AppData storage and remain 100% intact during updates.
+        </div>
       </div>
     </div>
   );
