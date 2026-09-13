@@ -26,13 +26,19 @@ export interface UpdateCheckResult {
 // Read application version directly from package.json as single source of truth
 export function getPackageVersion(): string {
   try {
-    const pkgPath = path.join(process.cwd(), 'package.json');
-    if (fs.existsSync(pkgPath)) {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-      if (pkg.version) return pkg.version;
+    const candidatePaths = [
+      path.join(process.cwd(), 'package.json'),
+      path.join(__dirname, 'package.json'),
+      path.join(__dirname, '..', 'package.json'),
+    ];
+    for (const pkgPath of candidatePaths) {
+      if (fs.existsSync(pkgPath)) {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        if (pkg.version) return pkg.version;
+      }
     }
   } catch (_) {}
-  return process.env.npm_package_version || '1.0.0';
+  return process.env.npm_package_version || '';
 }
 
 // Compare semantic version numbers (e.g. 1.0.0 vs 1.0.1, 1.1.0, 2.0.0)
@@ -54,11 +60,11 @@ export function compareSemver(v1: string, v2: string): number {
 }
 
 export const DEFAULT_GITHUB_OWNER = 'daudaziz998-web';
-export const DEFAULT_GITHUB_REPO = 'dastkrwan-restaurant-pose';
+export const DEFAULT_GITHUB_REPO = 'dastarkhwan-restaurant-pos';
 
-export function getUpdaterConfig(): { owner: string; repo: string; token?: string } {
+export function getUpdaterConfig(): { owner: string; repo: string } {
   const configPath = path.join(resolveDataDir(), 'updater-config.json');
-  // If an old config file exists from earlier versions, clean it up
+  // If an old config file exists from earlier versions, clean it up to prevent stale data
   if (fs.existsSync(configPath)) {
     try {
       fs.unlinkSync(configPath);
@@ -68,11 +74,10 @@ export function getUpdaterConfig(): { owner: string; repo: string; token?: strin
   return {
     owner: DEFAULT_GITHUB_OWNER,
     repo: DEFAULT_GITHUB_REPO,
-    token: undefined,
   };
 }
 
-export function saveUpdaterConfig(_config: { owner?: string; repo?: string; token?: string }) {
+export function saveUpdaterConfig(_config: { owner?: string; repo?: string }) {
   return { success: true };
 }
 
@@ -89,23 +94,21 @@ function extractReleaseAssets(assets: any[] | undefined, latestVersion: string) 
       const name: string = asset.name || '';
       const lower = name.toLowerCase();
 
-      // NSIS Setup Installer (e.g. Dastarkhwan.Restaurant.POS-Setup-1.0.1.exe)
-      if (lower.endsWith('.exe') && (lower.includes('-setup-') || lower.includes('setup') || lower.includes('-nsis-'))) {
+      // NSIS Setup Installer (e.g. Dastarkhwan.Restaurant.POS-Setup-1.0.1.exe or Setup-1.0.0.exe)
+      if (lower.endsWith('.exe') && (lower.includes('setup') || lower.includes('installer') || lower.includes('nsis'))) {
         setupDownloadUrl = asset.browser_download_url;
-        if (!primaryAssetName) {
-          primaryAssetName = name;
-          primaryAssetSize = asset.size;
-        }
+        primaryAssetName = name;
+        primaryAssetSize = asset.size;
       }
       // Portable Executable (e.g. Dastarkhwan.Restaurant.POS-1.0.1.exe)
-      else if (lower.endsWith('.exe') && !lower.includes('setup') && !lower.includes('installer')) {
+      else if (lower.endsWith('.exe') && (lower.includes('portable') || (!lower.includes('setup') && !lower.includes('installer')))) {
         portableDownloadUrl = asset.browser_download_url;
         if (!primaryAssetName) {
           primaryAssetName = name;
           primaryAssetSize = asset.size;
         }
       }
-      // Fallback executable
+      // Any other .exe asset
       else if (lower.endsWith('.exe')) {
         if (!setupDownloadUrl) setupDownloadUrl = asset.browser_download_url;
         if (!primaryAssetName) {
@@ -116,7 +119,7 @@ function extractReleaseAssets(assets: any[] | undefined, latestVersion: string) 
     }
   }
 
-  // Default fallback download links if files match standard naming
+  // Fallback direct release download URLs if not explicitly listed in assets
   if (!setupDownloadUrl) {
     setupDownloadUrl = `https://github.com/${DEFAULT_GITHUB_OWNER}/${DEFAULT_GITHUB_REPO}/releases/download/v${latestVersion}/Dastarkhwan.Restaurant.POS-Setup-${latestVersion}.exe`;
   }
@@ -135,25 +138,19 @@ function extractReleaseAssets(assets: any[] | undefined, latestVersion: string) 
   };
 }
 
-// Query GitHub Releases API or public Atom feed for updates
+// Query official GitHub Releases API for updates
 export async function checkGitHubReleases(
-  currentVersionInput?: string,
-  overrides?: { owner?: string; repo?: string; token?: string }
+  currentVersionInput?: string
 ): Promise<UpdateCheckResult> {
   const currentVersion = currentVersionInput || getPackageVersion();
-  const config = { ...getUpdaterConfig(), ...overrides };
-  const owner = config.owner || DEFAULT_GITHUB_OWNER;
-  const repo = config.repo || DEFAULT_GITHUB_REPO;
+  const owner = DEFAULT_GITHUB_OWNER;
+  const repo = DEFAULT_GITHUB_REPO;
   const repositoryUrl = `https://github.com/${owner}/${repo}`;
 
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github.v3+json',
     'User-Agent': 'Dastarkhwan-POS-Updater/1.0',
   };
-
-  if (config.token && config.token.trim()) {
-    headers['Authorization'] = `token ${config.token.trim()}`;
-  }
 
   // Strategy 1: Try /releases/latest endpoint
   try {
@@ -196,7 +193,7 @@ export async function checkGitHubReleases(
       }
     }
 
-    // Strategy 2: If /releases/latest returned 404 (e.g. if release is marked pre-release or not latest), try /releases list
+    // Strategy 2: If /releases/latest returned 404, query releases list
     if (res.status === 404) {
       const allReleasesController = new AbortController();
       const allReleasesTimeout = setTimeout(() => allReleasesController.abort(), 10000);
@@ -237,50 +234,20 @@ export async function checkGitHubReleases(
               repositoryUrl,
             };
           }
-        }
-      }
-    }
-
-    // Strategy 3: Try GitHub Atom feed (works for public repositories without API rate limits)
-    try {
-      const atomController = new AbortController();
-      const atomTimeout = setTimeout(() => atomController.abort(), 8000);
-      const atomUrl = `https://github.com/${owner}/${repo}/releases.atom`;
-      const atomRes = await fetch(atomUrl, {
-        signal: atomController.signal,
-        headers: { 'User-Agent': 'Dastarkhwan-POS-Updater/1.0' },
-      });
-      clearTimeout(atomTimeout);
-
-      if (atomRes.ok) {
-        const atomXml = await atomRes.text();
-        const tagMatch = atomXml.match(/\/releases\/tag\/(v?[0-9]+\.[0-9]+\.[0-9]+[^"'<>\s]*)/i);
-        if (tagMatch && tagMatch[1]) {
-          const tagName = tagMatch[1];
-          const latestVersion = tagName.replace(/^v/i, '').trim();
-          const isUpdateAvailable = compareSemver(latestVersion, currentVersion) > 0;
-          const assets = extractReleaseAssets([], latestVersion);
-
+        } else {
+          // Empty list of releases published
           return {
             success: true,
-            isUpdateAvailable,
+            isUpdateAvailable: false,
             currentVersion,
-            latestVersion,
-            releaseName: `Release v${latestVersion}`,
-            releaseNotes: `New production update v${latestVersion} published on GitHub.`,
-            publishedAt: new Date().toISOString(),
-            downloadUrl: assets.mainDownloadUrl,
-            setupDownloadUrl: assets.setupDownloadUrl,
-            portableDownloadUrl: assets.portableDownloadUrl,
-            assetName: assets.primaryAssetName,
-            htmlUrl: `${repositoryUrl}/releases/tag/${tagName}`,
+            latestVersion: currentVersion,
             repositoryUrl,
           };
         }
       }
-    } catch (_) {}
+    }
 
-    // If rate-limited or access error
+    // If rate-limited
     if (res.status === 403) {
       return {
         success: false,
@@ -293,12 +260,13 @@ export async function checkGitHubReleases(
       };
     }
 
-    // If 404 or no releases published yet, application is up to date
     return {
-      success: true,
+      success: false,
       isUpdateAvailable: false,
       currentVersion,
       latestVersion: currentVersion,
+      error: 'Unable to check for updates. Please try again.',
+      errorType: 'not_found',
       repositoryUrl,
     };
   } catch (err: any) {
@@ -308,7 +276,7 @@ export async function checkGitHubReleases(
         isUpdateAvailable: false,
         currentVersion,
         latestVersion: currentVersion,
-        error: 'Update check timed out. Please check your internet connection and try again.',
+        error: 'Unable to check for updates. Please check your internet connection and try again.',
         errorType: 'offline',
         repositoryUrl,
       };

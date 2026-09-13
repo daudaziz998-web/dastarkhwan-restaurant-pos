@@ -119,7 +119,7 @@ export async function startServer(customPort?: number): Promise<{ app: express.E
 
   // Check for updates via GitHub Releases
   app.get('/api/system/updates/check', async (req, res) => {
-    const currentVersion = (req.query.currentVersion as string) || getPackageVersion();
+    const currentVersion = (req.query.currentVersion as string) || (req.query.version as string) || getPackageVersion();
     try {
       const result = await checkGitHubReleases(currentVersion);
       res.json(result);
@@ -140,14 +140,13 @@ export async function startServer(customPort?: number): Promise<{ app: express.E
     res.json({
       owner: config.owner,
       repo: config.repo,
-      hasToken: Boolean(config.token && config.token.trim()),
     });
   });
 
-  // Update configuration (e.g. for private GitHub repositories)
+  // Update configuration
   app.post('/api/system/updates/config', (req, res) => {
-    const { owner, repo, token } = req.body || {};
-    const result = saveUpdaterConfig({ owner, repo, token });
+    const { owner, repo } = req.body || {};
+    const result = saveUpdaterConfig({ owner, repo });
     res.json(result);
   });
 

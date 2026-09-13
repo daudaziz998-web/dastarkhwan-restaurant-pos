@@ -122,18 +122,21 @@ export const api = {
     return res.json();
   },
 
-  async checkUpdates(currentVersion = '1.0.0'): Promise<any> {
-    const res = await fetch(`/api/system/updates/check?currentVersion=${encodeURIComponent(currentVersion)}`);
+  async checkUpdates(currentVersion?: string): Promise<any> {
+    const url = currentVersion
+      ? `/api/system/updates/check?currentVersion=${encodeURIComponent(currentVersion)}`
+      : '/api/system/updates/check';
+    const res = await fetch(url);
     return res.json();
   },
 
-  async getUpdaterConfig(): Promise<{ owner: string; repo: string; hasToken: boolean }> {
+  async getUpdaterConfig(): Promise<{ owner: string; repo: string }> {
     const res = await fetch('/api/system/updates/config');
     if (!res.ok) throw new Error('Failed to load updater config');
     return res.json();
   },
 
-  async saveUpdaterConfig(config: { owner?: string; repo?: string; token?: string }): Promise<{ success: boolean; error?: string }> {
+  async saveUpdaterConfig(config: { owner?: string; repo?: string }): Promise<{ success: boolean; error?: string }> {
     const res = await fetch('/api/system/updates/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

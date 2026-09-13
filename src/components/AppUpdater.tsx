@@ -7,18 +7,17 @@ interface AppUpdaterProps {
   onToast?: (msg: string) => void;
 }
 
+type UpdateUIState = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'up-to-date' | 'error';
+
 export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
-  const [checking, setChecking] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+  const [uiState, setUiState] = useState<UpdateUIState>('idle');
+  const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadSpeed, setDownloadSpeed] = useState<string>('');
   const [downloadedBytes, setDownloadedBytes] = useState<string>('');
-  const [updateReady, setUpdateReady] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isUpToDate, setIsUpToDate] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
   // Version state
-  const [currentVersion, setCurrentVersion] = useState('1.0.0');
+  const [currentVersion, setCurrentVersion] = useState<string>('');
   const [availableVersion, setAvailableVersion] = useState<string | null>(null);
   const [releaseNotes, setReleaseNotes] = useState<string | null>(null);
 
@@ -50,8 +49,8 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
 
     api.getSystemInfo().then((info) => {
       if (info) {
-        if (info.version && (!window.electronAPI?.isDesktop || currentVersion === '1.0.0')) {
-          setCurrentVersion(info.version);
+        if (info.version) {
+          setCurrentVersion((prev) => prev || info.version);
         }
         if (info.dbPath) setDbPath(info.dbPath);
       }
@@ -67,21 +66,19 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
       if (state.isPortable !== undefined) setIsPortable(state.isPortable);
 
       if (state.status === 'checking') {
-        setChecking(true);
-        setErrorMessage(null);
+        setUiState('checking');
+        setErrorMessage('');
       } else if (state.status === 'available') {
-        setChecking(false);
-        setIsUpToDate(false);
+        setUiState('available');
         setAvailableVersion(state.availableVersion || null);
         setReleaseNotes(state.releaseNotes || null);
+        setErrorMessage('');
       } else if (state.status === 'not-available') {
-        setChecking(false);
-        setIsUpToDate(true);
+        setUiState('up-to-date');
         setAvailableVersion(null);
-        setErrorMessage(null);
+        setErrorMessage('');
       } else if (state.status === 'downloading') {
-        setChecking(false);
-        setDownloading(true);
+        setUiState('downloading');
         if (state.progress) {
           setDownloadProgress(state.progress.percent);
           if (state.progress.bytesPerSecond) {
@@ -92,14 +89,11 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
           }
         }
       } else if (state.status === 'downloaded') {
-        setChecking(false);
-        setDownloading(false);
+        setUiState('downloaded');
         setDownloadProgress(100);
-        setUpdateReady(true);
         if (onToast) onToast('Update downloaded successfully.');
       } else if (state.status === 'error') {
-        setChecking(false);
-        setDownloading(false);
+        setUiState('error');
         setErrorMessage(state.errorMessage || 'Unable to check for updates. Please try again.');
       }
     });
@@ -111,62 +105,67 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
 
   // Check for updates
   const handleCheckForUpdates = useCallback(async () => {
-    setChecking(true);
-    setErrorMessage(null);
-    setIsUpToDate(false);
+    setUiState('checking');
+    setErrorMessage('');
     setAvailableVersion(null);
-    setUpdateReady(false);
-    setDownloading(false);
 
     try {
       if (window.electronAPI?.checkForUpdates) {
         const result = await window.electronAPI.checkForUpdates();
-        if (result && result.error) {
+        if (result && !result.success) {
+          setUiState('error');
           setErrorMessage(result.error || 'Unable to check for updates. Please try again.');
         } else if (result && result.isUpdateAvailable) {
+          setUiState('available');
           setAvailableVersion(result.latestVersion);
           setReleaseNotes(result.releaseNotes || null);
-          setIsUpToDate(false);
+          if (onToast) onToast(`Update available: v${result.latestVersion}`);
         } else if (result && result.success && !result.isUpdateAvailable) {
-          setIsUpToDate(true);
+          setUiState('up-to-date');
           setAvailableVersion(null);
+        } else {
+          setUiState('error');
+          setErrorMessage('Unable to check for updates. Please try again.');
         }
       } else {
         const result = await api.checkUpdates(currentVersion);
-        setChecking(false);
-
         if (!result.success) {
+          setUiState('error');
           setErrorMessage(result.error || 'Unable to check for updates. Please try again.');
           return;
         }
 
         if (result.isUpdateAvailable) {
-          setIsUpToDate(false);
+          setUiState('available');
           setAvailableVersion(result.latestVersion);
           setReleaseNotes(result.releaseNotes || null);
           if (onToast) onToast(`Update available: v${result.latestVersion}`);
         } else {
-          setIsUpToDate(true);
+          setUiState('up-to-date');
           setAvailableVersion(null);
         }
       }
     } catch (err: any) {
-      setChecking(false);
+      setUiState('error');
       setErrorMessage('Unable to check for updates. Please try again.');
     }
   }, [currentVersion, onToast]);
 
   // Download update
   const handleDownloadUpdate = async () => {
-    setDownloading(true);
-    setErrorMessage(null);
+    setUiState('downloading');
+    setErrorMessage('');
     setDownloadProgress(0);
 
     if (window.electronAPI?.startUpdateDownload) {
       try {
-        await window.electronAPI.startUpdateDownload(isPortable ? 'portable' : 'setup');
+        const res = await window.electronAPI.startUpdateDownload(isPortable ? 'portable' : 'setup');
+        if (res && !res.success) {
+          setUiState('error');
+          setErrorMessage('Unable to download update. Please try again.');
+        }
       } catch (err: any) {
-        setDownloading(false);
+        setUiState('error');
         setErrorMessage('Unable to download update. Please try again.');
       }
     } else {
@@ -178,8 +177,7 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
         setDownloadedBytes(`${(progress * 0.45).toFixed(1)} MB / 45 MB`);
         if (progress >= 100) {
           clearInterval(interval);
-          setDownloading(false);
-          setUpdateReady(true);
+          setUiState('downloaded');
           if (onToast) onToast('Update downloaded successfully.');
         }
       }, 300);
@@ -227,11 +225,11 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
             Installed Version
           </div>
           <div id="updater-current-version" style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-primary)' }}>
-            v{currentVersion}
+            {currentVersion ? `v${currentVersion}` : 'Checking...'}
           </div>
         </div>
 
-        {availableVersion && (
+        {availableVersion && uiState === 'available' && (
           <div style={{ textAlign: 'right' }}>
             <div className="pos-muted" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Available Version
@@ -243,24 +241,38 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
         )}
       </div>
 
-      {/* Primary Actions */}
+      {/* Primary Actions & Mutually Exclusive States */}
       <div style={{ marginBottom: '14px' }}>
-        {/* State 1: Idle or Up-to-date - Show Check for Updates */}
-        {!availableVersion && !updateReady && (
+        {/* State 1: Idle - Show Check for Updates */}
+        {uiState === 'idle' && (
           <button
             id="check-for-updates-btn"
             type="button"
             className="pos-btn"
-            disabled={checking}
             onClick={handleCheckForUpdates}
             style={{ minWidth: '180px' }}
           >
-            {checking ? '⏳ Checking for Updates...' : '🔍 Check for Updates'}
+            🔍 Check for Updates
           </button>
         )}
 
-        {/* State 2: Update Available - Show Update available notice & Download Update button */}
-        {availableVersion && !updateReady && !downloading && (
+        {/* State 2: Checking - Show Checking for Updates */}
+        {uiState === 'checking' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              id="check-for-updates-btn"
+              type="button"
+              className="pos-btn"
+              disabled
+              style={{ minWidth: '180px', opacity: 0.8 }}
+            >
+              ⏳ Checking for Updates...
+            </button>
+          </div>
+        )}
+
+        {/* State 3: Update Available - Show Notice & Download Button */}
+        {uiState === 'available' && (
           <div>
             <div
               style={{
@@ -305,8 +317,8 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
           </div>
         )}
 
-        {/* State 3: Downloading - Show Progress Bar */}
-        {downloading && (
+        {/* State 4: Downloading - Show Progress Bar */}
+        {uiState === 'downloading' && (
           <div
             style={{
               background: 'var(--surface-2)',
@@ -351,8 +363,8 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
           </div>
         )}
 
-        {/* State 4: Downloaded - Show Restart and Install button */}
-        {updateReady && (
+        {/* State 5: Downloaded - Show Restart and Install button */}
+        {uiState === 'downloaded' && (
           <div>
             <div
               style={{
@@ -394,63 +406,74 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
             </button>
           </div>
         )}
-      </div>
 
-      {/* Up To Date Notice */}
-      {isUpToDate && !checking && !availableVersion && (
-        <div
-          id="up-to-date-message"
-          style={{
-            background: 'rgba(16, 185, 129, 0.1)',
-            border: '1px solid rgba(16, 185, 129, 0.25)',
-            color: '#10b981',
-            padding: '12px 14px',
-            borderRadius: '8px',
-            marginBottom: '14px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            fontSize: '14px',
-          }}
-        >
-          <span style={{ fontSize: '18px' }}>✅</span>
-          <strong style={{ color: '#10b981' }}>
-            You are using the latest version.
-          </strong>
-        </div>
-      )}
+        {/* State 6: Up-to-date - Show Up To Date Notice & Re-check Button */}
+        {uiState === 'up-to-date' && (
+          <div>
+            <div
+              id="up-to-date-message"
+              style={{
+                background: 'rgba(16, 185, 129, 0.1)',
+                border: '1px solid rgba(16, 185, 129, 0.25)',
+                color: '#10b981',
+                padding: '12px 14px',
+                borderRadius: '8px',
+                marginBottom: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                fontSize: '14px',
+              }}
+            >
+              <span style={{ fontSize: '18px' }}>✅</span>
+              <strong style={{ color: '#10b981' }}>
+                You are using the latest version.
+              </strong>
+            </div>
 
-      {/* Error Message Notice */}
-      {errorMessage && (
-        <div
-          id="updater-error-message"
-          style={{
-            background: 'rgba(239, 68, 68, 0.1)',
-            border: '1px solid rgba(239, 68, 68, 0.3)',
-            color: '#f87171',
-            padding: '12px 14px',
-            borderRadius: '8px',
-            marginBottom: '14px',
-            fontSize: '13px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '16px' }}>⚠️</span>
-            <span>{errorMessage}</span>
+            <button
+              id="check-for-updates-btn"
+              type="button"
+              className="pos-btn outline sm"
+              onClick={handleCheckForUpdates}
+              style={{ fontSize: '13px' }}
+            >
+              🔍 Check Again
+            </button>
           </div>
-          <button
-            type="button"
-            className="pos-btn outline sm"
-            style={{ fontSize: '12px', padding: '4px 10px', borderColor: '#f87171', color: '#f87171' }}
-            onClick={handleCheckForUpdates}
+        )}
+
+        {/* State 7: Error - Show Error Notice & Retry Button (Mutually exclusive with Up-To-Date) */}
+        {uiState === 'error' && (
+          <div
+            id="updater-error-message"
+            style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: '#f87171',
+              padding: '12px 14px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
           >
-            Retry
-          </button>
-        </div>
-      )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '16px' }}>⚠️</span>
+              <span>{errorMessage || 'Unable to check for updates. Please try again.'}</span>
+            </div>
+            <button
+              type="button"
+              className="pos-btn outline sm"
+              style={{ fontSize: '12px', padding: '4px 10px', borderColor: '#f87171', color: '#f87171' }}
+              onClick={handleCheckForUpdates}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* SQLite Database & Trial Safety Guarantee */}
       <div

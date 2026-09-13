@@ -6,7 +6,7 @@ import { autoUpdater } from 'electron-updater';
 import { startServer } from '../server.ts';
 import { resolveDataDir, getDatabasePath } from '../server/db.ts';
 import { spawn } from 'child_process';
-import { checkGitHubReleases, downloadFileWithProgress, DEFAULT_GITHUB_OWNER, DEFAULT_GITHUB_REPO } from '../server/updater.ts';
+import { checkGitHubReleases, downloadFileWithProgress, DEFAULT_GITHUB_OWNER, DEFAULT_GITHUB_REPO, getPackageVersion } from '../server/updater.ts';
 
 // 1. Configure Persistent Data Directory before anything else
 process.env.IS_ELECTRON = 'true';
@@ -15,6 +15,7 @@ process.env.APP_DATA_DIR = userDataPath;
 
 const isPortable = Boolean(process.env.PORTABLE_EXECUTABLE_FILE);
 let downloadedPortablePath: string | null = null;
+let downloadedSetupPath: string | null = null;
 
 let mainWindow: BrowserWindow | null = null;
 let serverInstance: any = null;
@@ -266,7 +267,7 @@ interface DesktopUpdateState {
 
 let currentUpdateState: DesktopUpdateState = {
   status: 'idle',
-  currentVersion: '1.0.0',
+  currentVersion: (app ? app.getVersion() : '') || getPackageVersion(),
   isPortable,
   distributionType: isPortable ? 'portable' : (app.isPackaged ? 'setup' : 'web'),
 };
@@ -291,13 +292,6 @@ function setupAutoUpdater() {
       owner: DEFAULT_GITHUB_OWNER,
       repo: DEFAULT_GITHUB_REPO,
     });
-
-    const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-    if (githubToken && githubToken.trim()) {
-      autoUpdater.requestHeaders = {
-        Authorization: `token ${githubToken.trim()}`,
-      };
-    }
 
     autoUpdater.on('checking-for-update', () => {
       currentUpdateState = {
@@ -329,6 +323,8 @@ function setupAutoUpdater() {
         ...currentUpdateState,
         status: 'not-available',
         availableVersion: undefined,
+        errorMessage: undefined,
+        errorType: undefined,
       };
       broadcastUpdateState();
     });
@@ -356,40 +352,8 @@ function setupAutoUpdater() {
       broadcastUpdateState();
     });
 
-    autoUpdater.on('error', (err) => {
-      const msg = String(err?.message || err);
-      let friendly = 'Unable to check for updates. Please try again.';
-      let type = 'unknown';
-
-      if (msg.includes('net::ERR_INTERNET_DISCONNECTED') || msg.includes('ENOTFOUND') || msg.includes('network') || msg.includes('fetch failed')) {
-        friendly = 'No internet connection detected. Please check your internet connection and try again.';
-        type = 'offline';
-      } else if (msg.includes('403') || msg.includes('rate limit')) {
-        friendly = 'Unable to check for updates at this moment. Please try again in a few minutes.';
-        type = 'rate_limited';
-      } else if (msg.includes('404') || msg.includes('Cannot find') || msg.includes('latest.yml')) {
-        // When 404 / latest.yml not found, the application is on the latest version or no release exists
-        currentUpdateState = {
-          ...currentUpdateState,
-          status: 'not-available',
-          availableVersion: undefined,
-          errorMessage: undefined,
-          errorType: undefined,
-        };
-        broadcastUpdateState();
-        return;
-      } else if (msg.includes('sha512') || msg.includes('checksum') || msg.includes('corrupted')) {
-        friendly = 'Update package verification failed. Download was aborted to safeguard your application.';
-        type = 'corrupted';
-      }
-
-      currentUpdateState = {
-        ...currentUpdateState,
-        status: 'error',
-        errorMessage: friendly,
-        errorType: type,
-      };
-      broadcastUpdateState();
+    autoUpdater.on('error', (_err) => {
+      // Ignored here because checkGitHubReleases provides primary release inspection
     });
   }
 }
@@ -403,104 +367,80 @@ ipcMain.handle('check-for-updates', async () => {
   };
   broadcastUpdateState();
 
-  // If running Windows Portable executable or development mode, use direct GitHub release queries
-  if (isPortable || !app.isPackaged) {
-    try {
-      const releaseInfo = await checkGitHubReleases(app.getVersion());
-      if (releaseInfo.success && releaseInfo.isUpdateAvailable) {
-        currentUpdateState = {
-          status: 'available',
-          currentVersion: app.getVersion(),
-          availableVersion: releaseInfo.latestVersion,
-          releaseName: releaseInfo.releaseName,
-          releaseNotes: releaseInfo.releaseNotes,
-          publishedAt: releaseInfo.publishedAt,
-          downloadUrl: isPortable ? (releaseInfo.portableDownloadUrl || releaseInfo.downloadUrl) : releaseInfo.downloadUrl,
-          setupDownloadUrl: releaseInfo.setupDownloadUrl,
-          portableDownloadUrl: releaseInfo.portableDownloadUrl,
-          isPortable,
-          distributionType: isPortable ? 'portable' : 'web',
-        };
-      } else if (releaseInfo.success && !releaseInfo.isUpdateAvailable) {
-        currentUpdateState = {
-          status: 'not-available',
-          currentVersion: app.getVersion(),
-          isPortable,
-          distributionType: isPortable ? 'portable' : 'web',
-        };
-      } else {
-        currentUpdateState = {
-          status: 'error',
-          currentVersion: app.getVersion(),
-          errorMessage: releaseInfo.error || 'Failed to query GitHub Releases',
-          errorType: releaseInfo.errorType,
-          isPortable,
-          distributionType: isPortable ? 'portable' : 'web',
-        };
-      }
+  try {
+    const releaseInfo = await checkGitHubReleases(app.getVersion());
+
+    if (releaseInfo.success && releaseInfo.isUpdateAvailable) {
+      currentUpdateState = {
+        status: 'available',
+        currentVersion: app.getVersion(),
+        availableVersion: releaseInfo.latestVersion,
+        releaseName: releaseInfo.releaseName,
+        releaseNotes: releaseInfo.releaseNotes,
+        publishedAt: releaseInfo.publishedAt,
+        downloadUrl: isPortable
+          ? (releaseInfo.portableDownloadUrl || releaseInfo.downloadUrl)
+          : (releaseInfo.setupDownloadUrl || releaseInfo.downloadUrl),
+        setupDownloadUrl: releaseInfo.setupDownloadUrl,
+        portableDownloadUrl: releaseInfo.portableDownloadUrl,
+        isPortable,
+        distributionType: isPortable ? 'portable' : (app.isPackaged ? 'setup' : 'web'),
+      };
       broadcastUpdateState();
       return releaseInfo;
-    } catch (err: any) {
+    } else if (releaseInfo.success && !releaseInfo.isUpdateAvailable) {
+      currentUpdateState = {
+        status: 'not-available',
+        currentVersion: app.getVersion(),
+        availableVersion: undefined,
+        isPortable,
+        distributionType: isPortable ? 'portable' : (app.isPackaged ? 'setup' : 'web'),
+      };
+      broadcastUpdateState();
+      return releaseInfo;
+    } else {
       currentUpdateState = {
         status: 'error',
         currentVersion: app.getVersion(),
-        errorMessage: err.message,
+        errorMessage: releaseInfo.error || 'Unable to check for updates. Please try again.',
+        errorType: releaseInfo.errorType,
         isPortable,
-        distributionType: isPortable ? 'portable' : 'web',
+        distributionType: isPortable ? 'portable' : (app.isPackaged ? 'setup' : 'web'),
       };
       broadcastUpdateState();
-      return { success: false, error: err.message };
+      return { success: false, error: releaseInfo.error || 'Unable to check for updates. Please try again.' };
     }
-  }
-
-  // Packaged NSIS Setup distribution: use electron-updater
-  try {
-    const result = await autoUpdater.checkForUpdates();
-    return { success: true, result };
   } catch (err: any) {
-    // If autoUpdater throws (e.g. latest.yml not yet uploaded to release), fallback to checking GitHub releases API
-    try {
-      const releaseInfo = await checkGitHubReleases(app.getVersion());
-      if (releaseInfo.success && releaseInfo.isUpdateAvailable) {
-        currentUpdateState = {
-          status: 'available',
-          currentVersion: app.getVersion(),
-          availableVersion: releaseInfo.latestVersion,
-          releaseName: releaseInfo.releaseName,
-          releaseNotes: releaseInfo.releaseNotes,
-          publishedAt: releaseInfo.publishedAt,
-          downloadUrl: releaseInfo.setupDownloadUrl || releaseInfo.downloadUrl,
-          setupDownloadUrl: releaseInfo.setupDownloadUrl,
-          portableDownloadUrl: releaseInfo.portableDownloadUrl,
-          isPortable: false,
-          distributionType: 'setup',
-        };
-        broadcastUpdateState();
-        return releaseInfo;
-      }
-    } catch (_) {}
-
-    return { success: false, error: currentUpdateState.errorMessage || err.message };
+    currentUpdateState = {
+      status: 'error',
+      currentVersion: app.getVersion(),
+      errorMessage: 'Unable to check for updates. Please try again.',
+      isPortable,
+      distributionType: isPortable ? 'portable' : (app.isPackaged ? 'setup' : 'web'),
+    };
+    broadcastUpdateState();
+    return { success: false, error: 'Unable to check for updates. Please try again.' };
   }
 });
 
 ipcMain.handle('start-update-download', async (_event, targetAsset?: 'setup' | 'portable') => {
-  // Portable version handling: download the portable executable directly
-  if (isPortable) {
-    const targetUrl = targetAsset === 'setup'
-      ? currentUpdateState.setupDownloadUrl
-      : (currentUpdateState.portableDownloadUrl || currentUpdateState.downloadUrl);
+  const isPortableTarget = isPortable || targetAsset === 'portable';
+  const targetUrl = isPortableTarget
+    ? (currentUpdateState.portableDownloadUrl || currentUpdateState.downloadUrl)
+    : (currentUpdateState.setupDownloadUrl || currentUpdateState.downloadUrl);
 
-    if (!targetUrl) {
-      currentUpdateState = {
-        ...currentUpdateState,
-        status: 'error',
-        errorMessage: 'Download URL for the new version is not available.',
-      };
-      broadcastUpdateState();
-      return { success: false, error: 'Download URL not available' };
-    }
+  if (!targetUrl) {
+    currentUpdateState = {
+      ...currentUpdateState,
+      status: 'error',
+      errorMessage: 'Download URL for the new version is not available.',
+    };
+    broadcastUpdateState();
+    return { success: false, error: 'Download URL not available' };
+  }
 
+  // Handle packaged or real electron download
+  if (app.isPackaged || process.env.IS_ELECTRON) {
     try {
       currentUpdateState = {
         ...currentUpdateState,
@@ -509,11 +449,21 @@ ipcMain.handle('start-update-download', async (_event, targetAsset?: 'setup' | '
       };
       broadcastUpdateState();
 
-      // Portable executable destination directory
-      const execDir = process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.env.PORTABLE_EXECUTABLE_FILE || process.cwd());
       const newVersion = currentUpdateState.availableVersion || 'latest';
-      const targetFileName = `Dastarkhwan.Restaurant.POS-${newVersion}.exe`;
-      const targetPath = path.join(execDir, targetFileName);
+      let targetPath: string;
+
+      if (isPortableTarget) {
+        const execDir = process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.env.PORTABLE_EXECUTABLE_FILE || process.cwd());
+        targetPath = path.join(execDir, `Dastarkhwan.Restaurant.POS-${newVersion}.exe`);
+        downloadedPortablePath = targetPath;
+      } else {
+        const tempDir = path.join(app.getPath('temp'), 'dastarkhwan-updater');
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+        targetPath = path.join(tempDir, `Dastarkhwan.Restaurant.POS-Setup-${newVersion}.exe`);
+        downloadedSetupPath = targetPath;
+      }
 
       await downloadFileWithProgress(targetUrl, targetPath, (progress) => {
         currentUpdateState = {
@@ -524,7 +474,6 @@ ipcMain.handle('start-update-download', async (_event, targetAsset?: 'setup' | '
         broadcastUpdateState();
       });
 
-      downloadedPortablePath = targetPath;
       currentUpdateState = {
         ...currentUpdateState,
         status: 'downloaded',
@@ -536,30 +485,14 @@ ipcMain.handle('start-update-download', async (_event, targetAsset?: 'setup' | '
       currentUpdateState = {
         ...currentUpdateState,
         status: 'error',
-        errorMessage: `Failed to download portable update: ${err.message}`,
+        errorMessage: 'Unable to download update. Please try again.',
       };
       broadcastUpdateState();
       return { success: false, error: err.message };
     }
   }
 
-  // Packaged NSIS setup installation
-  if (app.isPackaged) {
-    try {
-      currentUpdateState = {
-        ...currentUpdateState,
-        status: 'downloading',
-        progress: { percent: 0, bytesPerSecond: 0, transferred: 0, total: 100 },
-      };
-      broadcastUpdateState();
-      await autoUpdater.downloadUpdate();
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
-  }
-
-  // In dev / unpackaged mode: simulate download steps for testing UI feedback
+  // In dev / preview mode: simulate download steps
   currentUpdateState = {
     ...currentUpdateState,
     status: 'downloading',
@@ -605,10 +538,28 @@ ipcMain.handle('quit-and-install', () => {
     }
   }
 
-  // Packaged NSIS setup installation: cleanly restart and run installer silently
+  // Packaged NSIS setup installation: run installer silently
+  if (downloadedSetupPath && fs.existsSync(downloadedSetupPath)) {
+    try {
+      const child = spawn(downloadedSetupPath, ['/S'], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref();
+      app.quit();
+      return;
+    } catch (err: any) {
+      dialog.showErrorBox('Failed to run update installer', `Could not run ${downloadedSetupPath}: ${err.message}`);
+      return;
+    }
+  }
+
+  // Fallback to autoUpdater if configured
   if (app.isPackaged) {
-    autoUpdater.quitAndInstall(false, true);
-    return;
+    try {
+      autoUpdater.quitAndInstall(false, true);
+      return;
+    } catch (_) {}
   }
 
   // Unpackaged development mode
