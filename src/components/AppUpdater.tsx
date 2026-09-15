@@ -474,26 +474,6 @@ export const AppUpdater: React.FC<AppUpdaterProps> = ({ trial, onToast }) => {
           </div>
         )}
       </div>
-
-      {/* SQLite Database & Trial Safety Guarantee */}
-      <div
-        style={{
-          background: 'rgba(56, 189, 248, 0.05)',
-          border: '1px solid rgba(56, 189, 248, 0.2)',
-          borderRadius: '8px',
-          padding: '12px 14px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-          <span style={{ fontSize: '16px' }}>🛡️</span>
-          <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>
-            Data Safety Guarantee
-          </strong>
-        </div>
-        <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.5' }}>
-          All restaurant data (orders, sales, menu, customers, employees) and 30-day trial status are saved in Windows per-user AppData storage and remain 100% intact during updates.
-        </div>
-      </div>
     </div>
   );
 };

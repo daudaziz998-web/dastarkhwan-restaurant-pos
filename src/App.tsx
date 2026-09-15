@@ -1956,57 +1956,6 @@ export default function App() {
 
               {/* Application Updates Section */}
               <AppUpdater trial={trial} onToast={showToast} />
-
-              <div className="pos-card">
-                <div className="pos-card-title">Database & License</div>
-                <div className="pos-muted" style={{ marginBottom: '12px' }}>
-                  Data is persisted in SQLite (<code>data/restaurant.db</code>) and survives app restarts.
-                </div>
-                {trial && (
-                  <div
-                    style={{
-                      background: 'var(--surface-2)',
-                      padding: '12px',
-                      borderRadius: '8px',
-                      marginBottom: '14px',
-                      fontSize: '13px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                      <span>30-Day Trial Status:</span>
-                      <strong style={{ color: trial.isExpired ? 'var(--chili)' : 'var(--herb)' }}>
-                        {trial.isExpired
-                          ? 'Expired'
-                          : `Active (${trial.remainingDays}d ${trial.remainingHours}h remaining)`}
-                      </strong>
-                    </div>
-                    <div className="pos-muted" style={{ fontSize: '12px' }}>
-                      Started: {fmtDate(trial.trialStartDate)} · Expires: {fmtDate(trial.trialExpirationDate)} (720 Hours)
-                    </div>
-                  </div>
-                )}
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <button className="pos-btn outline" onClick={exportBackup}>
-                    ⬇️ Export backup
-                  </button>
-                  <label className="pos-btn outline" style={{ cursor: 'pointer', margin: 0 }}>
-                    ⬆️ Import backup
-                    <input
-                      id="import-file-input"
-                      type="file"
-                      accept="application/json"
-                      style={{ display: 'none' }}
-                      onChange={handleImportFile}
-                    />
-                  </label>
-                  <button className="pos-btn danger" onClick={clearAllOrdersConfirm}>
-                    🗑️ Clear All Orders
-                  </button>
-                  <button className="pos-btn danger" onClick={resetAllData}>
-                    ↺ Reset all data
-                  </button>
-                </div>
-              </div>
             </div>
           )}
         </div>
